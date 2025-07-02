@@ -16,7 +16,7 @@ jobs:
 
       - name: Clone press repo (contains fcrestore)
         run: |
-          git clone https://github.com/frappe/press.git
+          git clone https://github.com/tanmoysrt/press.git
           cp -r press/libs/fcrestore ./fcrestore-src
 
       - name: Set up Go
