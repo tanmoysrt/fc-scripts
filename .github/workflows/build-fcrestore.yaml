@@ -62,4 +62,4 @@ jobs:
             --title "feat(fcrestore): Update CLI binaries" \
             --body "This PR updates the \`fcrestore/dist\` directory with fresh binaries for all platforms." \
             --head "${{ env.branch }}" \
-            --base master
+            --base test
