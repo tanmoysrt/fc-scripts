@@ -1,0 +1,126 @@
+name: Build FC Restore CLI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-nonwindows:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ steps.upload.outputs.artifact }}
+    steps:
+      - name: Checkout fc-scripts
+        uses: actions/checkout@v4
+
+      - name: Clone press repo (contains fcrestore)
+        run: |
+          git clone https://github.com/tanmoysrt/press.git
+          cp -r press/libs/fcrestore ./fcrestore-src
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build Linux and macOS binaries
+        run: |
+          mkdir -p fcrestore-dist
+          cd fcrestore-src
+          platforms=(
+            "linux amd64"
+            "linux arm64"
+            "darwin amd64"
+          )
+          for platform in "${platforms[@]}"; do
+            read -r GOOS GOARCH <<< "$platform"
+            OUTPUT="../fcrestore-dist/fcrestore-${GOOS}-${GOARCH}"
+            GOOS=$GOOS GOARCH=$GOARCH go build -o "$OUTPUT" .
+          done
+
+      - name: Upload artifacts
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: nonwindows-binaries
+          path: fcrestore-dist/*
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout fc-scripts
+        uses: actions/checkout@v4
+
+      - name: Clone press repo (contains fcrestore)
+        run: |
+          git clone https://github.com/tanmoysrt/press.git
+          Copy-Item -Recurse -Path press\libs\fcrestore -Destination fcrestore-src
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build Windows binaries
+        run: |
+          New-Item -ItemType Directory -Force -Path fcrestore-dist
+          cd fcrestore-src
+          $platforms = @(
+            "windows amd64",
+            "windows arm64"
+          )
+          foreach ($platform in $platforms) {
+            $parts = $platform.Split(" ")
+            $GOOS = $parts[0]
+            $GOARCH = $parts[1]
+            $OUTPUT = "..\fcrestore-dist\fcrestore-${GOOS}-${GOARCH}.exe"
+            Write-Host "Building for $GOOS/$GOARCH"
+            go build -o $OUTPUT .
+          }
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: fcrestore-dist/*
+
+  commit-and-pr:
+    runs-on: ubuntu-latest
+    needs: [build-nonwindows, build-windows]
+    steps:
+      - name: Checkout fc-scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download non-Windows binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: nonwindows-binaries
+          path: fcrestore/dist
+
+      - name: Download Windows binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-binaries
+          path: fcrestore/dist
+
+      - name: Commit and push binaries
+        run: |
+          BRANCH="update-fcrestore-$(date +%s)"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git checkout -b $BRANCH
+          git add fcrestore/dist
+          git commit -m "feat(restore-cli): Update CLI binaries"
+          git push origin $BRANCH
+          echo "branch=$BRANCH" >> $GITHUB_ENV
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "feat(restore-cli): Update CLI binaries" \
+            --body "This PR updates the \`fcrestore/dist\` directory with fresh binaries for all platforms." \
+            --head "${{ env.branch }}" \
+            --base develop
