@@ -1,0 +1,62 @@
+name: Build and Update fcrestore CLI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-pr:
+    name: Build CLI and Open PR
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+        exclude:
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout fc-scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone press repo (contains fcrestore)
+        run: |
+          git clone https://github.com/tanmoysrt/press.git
+          cp -r press/libs/fcrestore ./fcrestore-src
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build fcrestore binary
+        run: |
+          mkdir -p fcrestore/dist
+          cd fcrestore-src
+          OUTPUT=../fcrestore/dist/fcrestore-${{ matrix.goos }}-${{ matrix.goarch }}
+          if [ "${{ matrix.goos }}" = "windows" ]; then OUTPUT="$OUTPUT.exe"; fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o $OUTPUT .
+
+      - name: Prepare branch and commit binaries
+        run: |
+          BRANCH="update-fcrestore-$(date +%s)"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git checkout -b $BRANCH
+          git add fcrestore/dist
+          git commit -m "feat(restore-cli): Update CLI binaries"
+          git push origin $BRANCH
+          echo "branch=$BRANCH" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "feat(restore-cli): Update CLI binaries" \
+            --body "This PR updates the \`fcrestore/dist\` directory with fresh platform-specific binaries." \
+            --head "${{ env.branch }}" \
+            --base test
